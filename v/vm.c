@@ -8,6 +8,19 @@
 
 #define SYS_write 64
 
+// To run a test, select one of the predefined test cases and update the
+// following definition by changing the prefixed number to match the appropriate test case.
+
+#define STATEEN_TEST_1
+
+// How to run:
+//
+// Sail:
+// ./sail-riscv/build/c_emulator/riscv_sim_rv64d ./isa/rv64ustateen-v-state
+//
+// Spike (Spike does not support ssstateen yet)
+// spike  --isa=rv64im_zifencei_zfinx_smstateen ./isa/rv64ustateen-v-state
+
 #if __riscv_xlen == 32
 # define SATP_MODE_CHOICE SATP_MODE_SV32
 #elif defined(Sv48)
@@ -203,6 +216,48 @@ void handle_fault(uintptr_t addr, uintptr_t cause)
 
 void handle_trap(trapframe_t* tf)
 {
+  /*
+   * WARNING: One or more of the following test cases may result in infinite trapping!
+   */
+  #if defined(STATEEN_TEST_1) || defined(STATEEN_TEST_2)
+    write_csr(sstateen0, 0xFFFFFFFFFFFFFFFF);
+  #elif defined(STATEEN_TEST_3)
+    read_csr(senvcfg);
+  #elif defined(STATEEN_TEST_4)
+    write_csr(sstateen0, 0xFFFFFFFFFFFFFFF0);
+  #elif defined(STATEEN_TEST_5)
+    read_csr(senvcfg);
+    write_csr(sstateen0, 0xFFFFFFFFFFFFFFFF);
+  #elif defined(STATEEN_TEST_6)
+    write_csr(sstateen0, 0xFFFFFFFFFFFFFFF0);
+    // We should be able to execute the following instruction
+    // But will trap later in U-Mode
+    float result;
+    float input;
+
+    input = 3.14f;
+
+    __asm__ volatile(
+        "fadd.s %0, %1, %1"
+        : "=f"(result)
+        : "f"(input));
+
+  #elif defined(STATEEN_TEST_7)
+    float result;
+    float input;
+
+    input = 3.14f;
+
+    __asm__ volatile(
+        "fadd.s %0, %1, %1"
+        : "=f"(result)
+        : "f"(input));
+
+    write_csr(sstateen0, 0xFFFFFFFFFFFFFFFF);
+
+  #endif
+
+
   if (trap_filter(tf)) {
     pop_tf(tf);
   }
@@ -252,6 +307,42 @@ static void coherence_torture()
     random = lfsr63(random);
   }
 }
+
+
+void configure_stateen()
+{
+  #if defined(STATEEN_TEST_1)
+    // Sail Extensions: FD = false, Zfinx = true, smstateen = true, ssstateen = false
+    // Expected Outcome: Complete without any failures
+    write_csr(mstateen0, 0xFFFFFFFFFFFFFFFF);
+  #elif defined(STATEEN_TEST_2)
+    // Sail Extensions: FD = false, Zfinx = true, smstateen = true, ssstateen = false
+    // Expected Outcome: This will lead to continuous trapping since Supervisor mode lacks access to sstateen0
+    write_csr(mstateen0, 0x0000000000000000);
+  #elif defined(STATEEN_TEST_3)
+    // Sail Extensions: FD = false, Zfinx = true, smstateen = true, ssstateen = false
+    // Expected Outcome: Allow Supervisor access to sstateen0, but deny access to senvcfg
+    // This should trigger an illegal instruction exception, resulting in infinite trapping
+    write_csr(mstateen0, 0x8000000000000000);
+  #elif defined(STATEEN_TEST_4)
+    // Sail Extensions: FD = false, Zfinx = true, smstateen = true, ssstateen = false
+    // Expected Outcome: Enable FP in machine mode, but should trigger an illegal instruction exception resulting in infinite trapping
+    write_csr(mstateen0, 0xFFFFFFFFFFFFFFFF);
+  #elif defined(STATEEN_TEST_5)
+    // Sail Extensions: FD = false, Zfinx = true, smstateen = true, ssstateen = false
+    // Expected Outcome: Allow Supervisor access to senvcfg, complete without any failures
+    write_csr(mstateen0, 0xFFFFFFFFFFFFFFFF);
+  #elif defined(STATEEN_TEST_6)
+    // Sail Extensions: FD = false, Zfinx = true, smstateen = true, ssstateen = false
+    // Expected Outcome: Should successfully execute fadd in S-Mode, but cause an Illegal Instruction Exception in U-Mode, resulting in infinite trapping
+    write_csr(mstateen0, 0xFFFFFFFFFFFFFFFF);
+  #elif defined(STATEEN_TEST_7)
+    // Sail Extensions: FD = false, Zfinx = true, smstateen = true, ssstateen = false
+    // Expected Outcome: Disable FP instructions, which should cause an Illegal Instruction Exception in S-Mode when executing fadd, resulting in infinite trapping
+    write_csr(mstateen0, 0xFFFFFFFFFFFFFFF0);
+  #endif
+}
+
 
 void vm_boot(uintptr_t test_addr)
 {
@@ -310,8 +401,10 @@ void vm_boot(uintptr_t test_addr)
     (1 << CAUSE_LOAD_PAGE_FAULT) |
     (1 << CAUSE_STORE_PAGE_FAULT));
   // FPU on; accelerator on; vector unit on
-  write_csr(mstatus, MSTATUS_FS | MSTATUS_XS | MSTATUS_VS);
+  write_csr(mstatus, /*MSTATUS_FS | */ MSTATUS_XS | MSTATUS_VS);
   write_csr(mie, 0);
+
+  configure_stateen();
 
   random = 1 + (random % MAX_TEST_PAGES);
   freelist_head = pa2kva((void*)&freelist_nodes[0]);
