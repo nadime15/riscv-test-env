@@ -57,6 +57,16 @@
   RVTEST_ENABLE_SUPERVISOR;                                             \
   .endm
 
+#define RVTEST_RV64VS                                                   \
+  .macro init;                                                          \
+  RVTEST_ENABLE_VIRTUAL_SUPERVISOR;                                     \
+  .endm
+
+#define RVTEST_RV64VU                                                   \
+  .macro init;                                                          \
+  RVTEST_ENABLE_VIRTUAL_USER;                                           \
+  .endm
+
 #define RVTEST_RV32M                                                    \
   .macro init;                                                          \
   RVTEST_ENABLE_MACHINE;                                                \
@@ -124,10 +134,17 @@
   .align 2;                                                             \
 1:
 
-#define INIT_SATP                                                      \
+#define INIT_SATP                                                       \
   la t0, 1f;                                                            \
   csrw mtvec, t0;                                                       \
-  csrwi satp, 0;                                                       \
+  csrwi satp, 0;                                                        \
+  .align 2;                                                             \
+1:
+
+#define INIT_HGATP                                                      \
+  la t0, 1f;                                                            \
+  csrw mtvec, t0;                                                       \
+  csrwi hgatp, 0;                                                       \
   .align 2;                                                             \
 1:
 
@@ -137,6 +154,55 @@
   csrw mtvec, t0;                                                       \
   csrwi medeleg, 0;                                                     \
   csrwi mideleg, 0;                                                     \
+  .align 2;                                                             \
+1:                                                                      \
+  la t0, 2f;                                                            \
+  csrw mtvec, t0;                                                       \
+  csrwi hie, 0;                                                         \
+  csrwi hedeleg, 0;                                                     \
+  csrwi hideleg, 0;                                                     \
+  .align 2;                                                             \
+2:
+
+#define RVTEST_ENABLE_VIRTUAL_USER_FROM_HS                              \
+  li a0, HSTATUS_SPV;                                                   \
+  csrs hstatus, a0;                                                     \
+  li a0, SSTATUS_SPP;                                                   \
+  csrc sstatus, a0;                                                     \
+
+#define RVTEST_ENABLE_VIRTUAL_SUPERVISOR_FROM_HS                        \
+  li a0, HSTATUS_SPV;                                                   \
+  csrs hstatus, a0;                                                     \
+  li a0, SSTATUS_SPP;                                                   \
+  csrs sstatus, a0;                                                     \
+
+#define RVTEST_ENABLE_VIRTUAL_USER                                      \
+  li a0, MSTATUS_MPP;                                                   \
+  csrc mstatus, a0;                                                     \
+  li a0, MSTATUS_MPV;                                                   \
+  csrs mstatus, a0;                                                     \
+  li a0, MIP_VSSIP | MIP_VSTIP;                                         \
+  csrs hideleg, a0;                                                     \
+
+#define RVTEST_ENABLE_VIRTUAL_SUPERVISOR                                \
+  li a0, MSTATUS_MPP & (MSTATUS_MPP >> 1);                              \
+  csrs mstatus, a0;                                                     \
+  li a0, MSTATUS_MPV;                                                   \
+  csrs mstatus, a0;                                                     \
+  li a0, MIP_VSSIP | MIP_VSTIP;                                         \
+  csrs hideleg, a0;                                                     \
+
+#define RVTEST_ENABLE_USER_FROM_SUPERVISOR                              \
+  li a0, SSTATUS_SPP;                                                   \
+  csrc sstatus, a0;                                                     \
+
+#define RVTEST_ENABLE_USER                                              \
+  li a0, MSTATUS_MPP;                                                   \
+  csrc mstatus, a0;                                                     \
+  la a0, 1f;                                                            \
+  csrw mtvec, a0;                                                       \
+  li a0, SIP_SSIP | SIP_STIP;                                           \
+  csrs mideleg, a0;                                                     \
   .align 2;                                                             \
 1:
 
@@ -197,6 +263,8 @@ trap_vector:                                                            \
         beq t5, t6, write_tohost;                                       \
         li t6, CAUSE_SUPERVISOR_ECALL;                                  \
         beq t5, t6, write_tohost;                                       \
+        li t6, CAUSE_VIRTUAL_SUPERVISOR_ECALL;                          \
+        beq t5, t6, write_tohost;                                       \
         li t6, CAUSE_MACHINE_ECALL;                                     \
         beq t5, t6, write_tohost;                                       \
         /* if an mtvec_handler is defined, jump to it */                \
@@ -221,6 +289,7 @@ reset_vector:                                                           \
         RISCV_MULTICORE_DISABLE;                                        \
         INIT_RNMI;                                                      \
         INIT_SATP;                                                      \
+        INIT_HGATP;                                                     \
         INIT_PMP;                                                       \
         DELEGATE_NO_TRAPS;                                              \
         li TESTNUM, 0;                                                  \
@@ -231,11 +300,14 @@ reset_vector:                                                           \
         la t0, stvec_handler;                                           \
         beqz t0, 1f;                                                    \
         csrw stvec, t0;                                                 \
-        li t0, (1 << CAUSE_LOAD_PAGE_FAULT) |                           \
-               (1 << CAUSE_STORE_PAGE_FAULT) |                          \
-               (1 << CAUSE_FETCH_PAGE_FAULT) |                          \
-               (1 << CAUSE_MISALIGNED_FETCH) |                          \
-               (1 << CAUSE_USER_ECALL) |                                \
+        li t0, (1 << CAUSE_LOAD_PAGE_FAULT)         |                   \
+               (1 << CAUSE_LOAD_GUEST_PAGE_FAULT)   |                   \
+               (1 << CAUSE_FETCH_PAGE_FAULT)        |                   \
+               (1 << CAUSE_FETCH_GUEST_PAGE_FAULT)  |                   \
+               (1 << CAUSE_STORE_PAGE_FAULT)        |                   \
+               (1 << CAUSE_STORE_GUEST_PAGE_FAULT)  |                   \
+               (1 << CAUSE_MISALIGNED_FETCH)        |                   \
+               (1 << CAUSE_USER_ECALL)              |                   \
                (1 << CAUSE_BREAKPOINT);                                 \
         csrw medeleg, t0;                                               \
 1:      csrwi mstatus, 0;                                               \
