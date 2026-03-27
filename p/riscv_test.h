@@ -199,12 +199,6 @@
 #define RVTEST_ENABLE_USER                                              \
   li a0, MSTATUS_MPP;                                                   \
   csrc mstatus, a0;                                                     \
-  la a0, 1f;                                                            \
-  csrw mtvec, a0;                                                       \
-  li a0, SIP_SSIP | SIP_STIP;                                           \
-  csrs mideleg, a0;                                                     \
-  .align 2;                                                             \
-1:
 
 #define RVTEST_ENABLE_SUPERVISOR                                        \
   li a0, MSTATUS_MPP & (MSTATUS_MPP >> 1);                              \
