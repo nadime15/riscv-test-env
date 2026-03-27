@@ -77,6 +77,16 @@
   RVTEST_ENABLE_SUPERVISOR;                                             \
   .endm
 
+#define RVTEST_RV32VS                                                   \
+  .macro init;                                                          \
+  RVTEST_ENABLE_VIRTUAL_SUPERVISOR;                                     \
+  .endm
+
+#define RVTEST_RV32VU                                                   \
+  .macro init;                                                          \
+  RVTEST_ENABLE_VIRTUAL_USER;                                           \
+  .endm
+
 #if __riscv_xlen == 64
 # define CHECK_XLEN li a0, 1; slli a0, a0, 31; bgez a0, 1f; RVTEST_PASS; 1:
 #else
@@ -164,6 +174,16 @@
   .align 2;                                                             \
 2:
 
+#if __riscv_xlen == 64
+#define SET_MPV                                                         \
+  li a0, MSTATUS_MPV;                                                   \
+  csrs mstatus, a0;
+#else
+#define SET_MPV                                                         \
+  li a0, MSTATUSH_MPV;                                                  \
+  csrs mstatush, a0;
+#endif
+
 #define RVTEST_ENABLE_VIRTUAL_USER_FROM_HS                              \
   li a0, HSTATUS_SPV;                                                   \
   csrs hstatus, a0;                                                     \
@@ -179,16 +199,14 @@
 #define RVTEST_ENABLE_VIRTUAL_USER                                      \
   li a0, MSTATUS_MPP;                                                   \
   csrc mstatus, a0;                                                     \
-  li a0, MSTATUS_MPV;                                                   \
-  csrs mstatus, a0;                                                     \
+  SET_MPV                                                               \
   li a0, MIP_VSSIP | MIP_VSTIP;                                         \
   csrs hideleg, a0;                                                     \
 
 #define RVTEST_ENABLE_VIRTUAL_SUPERVISOR                                \
   li a0, MSTATUS_MPP & (MSTATUS_MPP >> 1);                              \
   csrs mstatus, a0;                                                     \
-  li a0, MSTATUS_MPV;                                                   \
-  csrs mstatus, a0;                                                     \
+  SET_MPV                                                               \
   li a0, MIP_VSSIP | MIP_VSTIP;                                         \
   csrs hideleg, a0;                                                     \
 
